@@ -59,6 +59,21 @@ func FindFuncWithName(name string) (uintptr, error) {
 	for moduleData := &Firstmoduledata; moduleData != nil; moduleData = moduleData.next {
 		for _, ftab := range moduleData.ftab {
 			f := (*runtime.Func)(unsafe.Pointer(&moduleData.pclntable[ftab.funcoff]))
+
+			// (*Func).Name() assumes that the *Func was created by some exported
+			// method that would have returned a nil *Func pointer IF the
+			// desired function's datap resolves to nil.
+			// (a.k.a. if findmoduledatap(pc) returns nil)
+			// Since the last element of the moduleData.ftab has a datap of nil
+			// (from experimentation), .Name() Seg Faults on the last element.
+			//
+			// If we instead ask the external function FuncForPc to fetch
+			// our *Func object, it will check the datap first and give us
+			// a proper nil *Func, that .Name() understands.
+			// The down side of doing this is that internally, the
+			// findmoduledatap(pc) function is called twice for every element
+			// we loop over.
+			f = runtime.FuncForPC(f.Entry())
 			if f.Name() == name {
 				return f.Entry(), nil
 			}
@@ -86,17 +101,48 @@ type Moduledata struct {
 	bss, ebss             uintptr
 	noptrbss, enoptrbss   uintptr
 	end, gcdata, gcbss    uintptr
+	types, etypes         uintptr
 
-	// Original type was []*_type
-	typelinks []interface{}
+	textsectmap []Textsect
+	typelinks   []int32 // offsets from types
+	// Original type was []*itab
+	itablinks []*struct{}
+
+	ptab []PtabEntry
+
+	pluginpath string
+	// Original type was []modulehash
+	pkghashes []interface{}
 
 	modulename string
 	// Original type was []modulehash
 	modulehashes []interface{}
 
+	hasmain uint8 // 1 if module contains the main function, 0 otherwise
+
 	gcdatamask, gcbssmask Bitvector
 
+	// Original type was map[typeOff]*_type
+	typemap map[typeOff]*struct{}
+
+	bad bool // module failed to load and should be ignored
+
 	next *Moduledata
+}
+
+type Textsect struct {
+	vaddr    uintptr // prelinked section vaddr
+	length   uintptr // section length
+	baseaddr uintptr // relocated section address
+}
+
+type nameOff int32
+type typeOff int32
+type textOff int32
+
+type PtabEntry struct {
+	name nameOff
+	typ  typeOff
 }
 
 type Functab struct {

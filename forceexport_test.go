@@ -2,8 +2,15 @@ package forceexport
 
 import (
 	"fmt"
+	"reflect"
+	"runtime"
 	"testing"
 )
+
+// funcName resolves the name of a given function
+func funcName(f interface{}) string {
+	return runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
+}
 
 func TestTimeNow(t *testing.T) {
 	var timeNowFunc func() (int64, int32)
@@ -41,19 +48,19 @@ func TestGetSelf(t *testing.T) {
 	var getFunc func(interface{}, string) error
 	err := GetFunc(&getFunc, "github.com/alangpierce/go-forceexport.GetFunc")
 	if err != nil {
-		t.Error("Error: %s", err)
+		t.Errorf("Error: %s", err)
 	}
 	// The two functions should share the same code pointer, so they should
 	// have the same string representation.
-	if fmt.Sprint(getFunc) != fmt.Sprint(GetFunc) {
+	if fmt.Sprint(funcName(getFunc)) != fmt.Sprint(funcName(GetFunc)) {
 		t.Errorf("Expected ")
 	}
 	// Call it again on itself!
 	err = getFunc(&getFunc, "github.com/alangpierce/go-forceexport.GetFunc")
 	if err != nil {
-		t.Error("Error: %s", err)
+		t.Errorf("Error: %s", err)
 	}
-	if fmt.Sprint(getFunc) != fmt.Sprint(GetFunc) {
+	if fmt.Sprint(funcName(getFunc)) != fmt.Sprint(funcName(GetFunc)) {
 		t.Errorf("Expected ")
 	}
 }
@@ -66,5 +73,14 @@ func TestInvalidFunc(t *testing.T) {
 	}
 	if invalidFunc != nil {
 		t.Error("Expected a nil function.")
+	}
+}
+
+// BenchmarkGetMainInit check how long it takes to find the symbol main.init,
+// which is typically the last func symbol(by experiment).
+func BenchmarkGetMainInit(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		var main_init func()
+		GetFunc(&main_init, "main.init")
 	}
 }
